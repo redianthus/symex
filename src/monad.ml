@@ -2,51 +2,56 @@
     computation can stop ([Prune]). Computations can yield ([Yield]), and split
     into two non deterministic choices ([Choice]). They can also fail ([Ok]
     versus [Error]). *)
-module Schedulable = struct
-  type ('a, 'err, 'prio) t =
-    | Prune
-    | Ok of 'a
-    | Error of 'err
-    | Yield of 'prio * (unit -> ('a, 'err, 'prio) t)
-    | Choice of ('a, 'err, 'prio) t * ('a, 'err, 'prio) t
 
-  let rec bind (x : ('a, 'err, 'prio) t) (f : 'a -> ('b, 'err, 'prio) t) :
-    ('b, 'err, 'prio) t =
-    match x with
-    | Prune -> Prune
-    | Ok v -> f v
-    | Error e -> Error e
-    | Yield (prio, step) -> Yield (prio, fun () -> bind (step ()) f)
-    | Choice (a, b) -> Choice (bind a f, bind b f)
-
-  let[@inline] rec map (f : 'a -> 'b) (x : ('a, 'err, 'prio) t) :
-    ('b, 'err, 'prio) t =
-    match x with
-    | Prune -> Prune
-    | Ok v -> Ok (f v)
-    | Error e -> Error e
-    | Yield (prio, step) -> Yield (prio, fun () -> map f (step ()))
-    | Choice (a, b) -> Choice (map f a, map f b)
-end
+type ('a, 'err, 'prio, 'state) schedulable =
+  | Prune
+  | Ok of 'a * 'state
+  | Error of 'err
+  | Yield of 'prio * (unit -> ('a, 'err, 'prio, 'state) schedulable)
+  | Choice of
+      ('a, 'err, 'prio, 'state) schedulable
+      * ('a, 'err, 'prio, 'state) schedulable
 
 (* Add a notion of State to the Schedulable monad. "Transformer without module functor" style. *)
 type ('a, 'err, 'prio, 'state) t =
-  'state -> ('a * 'state, 'err, 'prio) Schedulable.t
+  'state -> ('a, 'err, 'prio, 'state) schedulable
+
+(* Schedulable monadic boilerplate *)
+
+let rec bind_schedulable (x : ('a, 'err, 'prio, 'state) schedulable)
+  (f : 'a -> 'state -> ('b, 'err, 'prio, 'state) schedulable) :
+  ('b, 'err, 'prio, 'state) schedulable =
+  match x with
+  | Prune -> Prune
+  | Ok (v, state) -> f v state
+  | Error e -> Error e
+  | Yield (prio, step) -> Yield (prio, fun () -> bind_schedulable (step ()) f)
+  | Choice (a, b) -> Choice (bind_schedulable a f, bind_schedulable b f)
+
+let[@inline] rec map_schedulable (f : 'a -> 'b)
+  (x : ('a, 'err, 'prio, 'state) schedulable) :
+  ('b, 'err, 'prio, 'state) schedulable =
+  match x with
+  | Prune -> Prune
+  | Ok (v, state) -> Ok (f v, state)
+  | Error e -> Error e
+  | Yield (prio, step) -> Yield (prio, fun () -> map_schedulable f (step ()))
+  | Choice (a, b) -> Choice (map_schedulable f a, map_schedulable f b)
+
+(* Schedulable + State monadic boilerplate *)
 
 let[@inline] return (x : 'a) : ('a, _, _, 'state) t =
- fun (state : 'state) -> Schedulable.Ok (x, state)
+ fun (state : 'state) -> Ok (x, state)
 
 let[@inline] bind (x : ('a, 'err, 'prio, 'state) t)
   (f : 'a -> ('b, 'err, 'prio, 'state) t) : ('b, 'err, 'prio, 'state) t =
- fun (state : 'state) ->
-  Schedulable.bind (x state) (fun (x, state) -> f x state)
+ fun (state : 'state) -> bind_schedulable (x state) f
 
 let[@inline] ( let* ) (x : ('a, 'err, 'prio, 'state) t) f : _ t = bind x f
 
 let[@inline] map (f : 'a -> 'b) (x : ('a, 'err, 'prio, 'state) t) :
   ('b, 'err, 'prio, 'state) t =
- fun (state : 'state) ->
-  Schedulable.map (fun (x, state) -> (f x, state)) (x state)
+ fun (state : 'state) -> map_schedulable f (x state)
 
 let[@inline] ( let+ ) (x : ('a, 'err, 'prio, 'state) t) (f : 'a -> 'b) :
   ('b, 'err, 'prio, 'state) t =
@@ -55,22 +60,21 @@ let[@inline] ( let+ ) (x : ('a, 'err, 'prio, 'state) t) (f : 'a -> 'b) :
 (** State operations. *)
 
 let[@inline] fold_state (f : 'state -> 'a) : ('a, 'err, 'prio, 'state) t =
- fun (state : 'state) -> Schedulable.Ok (f state, state)
+ fun (state : 'state) -> Ok (f state, state)
 
 let[@inline] map_state (f : 'state -> 'state) : (unit, 'err, 'prio, 'state) t =
- fun (state : 'state) -> Schedulable.Ok ((), f state)
+ fun (state : 'state) -> Ok ((), f state)
 
 (** Symbolic execution primitives. *)
 
 (* Create two new branches, they do not yield so the yield should be created manually! *)
 let[@inline] choose (x : ('a, 'err, 'prio, 'state) t)
   (y : ('a, 'err, 'prio, 'state) t) : ('a, 'err, 'prio, 'state) t =
- fun state -> Schedulable.Choice (x state, y state)
+ fun state -> Choice (x state, y state)
 
 (* Yield the current branch (i.e. add it to the work queue so that it gets executed later. )*)
 let[@inline] yield (prio : 'prio) : (unit, 'err, 'prio, 'state) t =
- fun (state : 'state) ->
-  Schedulable.Yield (prio, fun () -> Schedulable.Ok ((), state))
+ fun (state : 'state) -> Yield (prio, fun () -> Ok ((), state))
 
 (* Child will be a new branch that immediately yields, and parent will execute directly without yielding. *)
 let[@inline] fork ~(parent : ('a, 'err, 'prio, 'state) t)
@@ -80,11 +84,11 @@ let[@inline] fork ~(parent : ('a, 'err, 'prio, 'state) t)
   choose parent child
 
 let[@inline] prune () : ('a, 'err, 'prio, 'state) t =
- fun (_state : 'state) -> Schedulable.Prune
+ fun (_state : 'state) -> Prune
 
 let[@inline] fail (err : 'err) : ('a, 'err, 'prio, 'state) t =
  fun (_state : 'state) -> Error err
 
 let[@inline] run (f : ('a, 'err, 'prio, 'state) t) (state : 'state) :
-  ('a * 'state, 'err, 'prio) Schedulable.t =
+  ('a, 'err, 'prio, 'state) schedulable =
   f state

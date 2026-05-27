@@ -1,13 +1,19 @@
-module Schedulable : sig
-  type ('a, 'err, 'prio) t = private
-    | Prune
-    | Ok of 'a
-    | Error of 'err
-    | Yield of 'prio * (unit -> ('a, 'err, 'prio) t)
-    | Choice of ('a, 'err, 'prio) t * ('a, 'err, 'prio) t
-end
+(** A monad representing computation that can be cooperatively scheduled. A
+    computation can stop ([Prune]). Computations can yield ([Yield]), and split
+    into two non deterministic choices ([Choice]). They can also fail ([Ok]
+    versus [Error]). *)
 
-type ('a, 'err, 'prio, 'state) t
+type ('a, 'err, 'prio, 'state) schedulable =
+  | Prune
+  | Ok of 'a * 'state
+  | Error of 'err
+  | Yield of 'prio * (unit -> ('a, 'err, 'prio, 'state) schedulable)
+  | Choice of
+      ('a, 'err, 'prio, 'state) schedulable
+      * ('a, 'err, 'prio, 'state) schedulable
+
+(* Add a notion of State to the Schedulable monad. "Transformer without module functor" style. *)
+and ('a, 'err, 'prio, 'state) t
 
 (* Monadic boilerplate *)
 
@@ -54,6 +60,4 @@ val prune : unit -> ('a, 'err, 'prio, 'state) t
 val yield : 'prio -> (unit, 'err, 'prio, 'state) t
 
 val run :
-     ('a, 'err, 'prio, 'state) t
-  -> 'state
-  -> ('a * 'state, 'err, 'prio) Schedulable.t
+  ('a, 'err, 'prio, 'state) t -> 'state -> ('a, 'err, 'prio, 'state) schedulable
