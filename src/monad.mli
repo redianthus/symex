@@ -1,10 +1,8 @@
-(** A monad representing computation that can be cooperatively scheduled. A
-    computation can stop ([Prune]). Computations can yield ([Yield]), and split
-    into two non deterministic choices ([Choice]). They can also fail ([Ok]
-    versus [Error]). *)
+(** A monad representing computation that can be cooperatively scheduled.
+    Computations can yield ([Yield]), and split into two non deterministic
+    choices ([Choice]). They can also fail/stop ([Ok] versus [Error]). *)
 
 type ('a, 'err, 'prio, 'state) schedulable =
-  | Prune
   | Ok of 'a * 'state
   | Error of 'err
   | Yield of 'prio * (unit -> ('a, 'err, 'prio, 'state) schedulable)
@@ -54,8 +52,6 @@ val fork :
      parent:('a, 'err, 'prio, 'state) t
   -> child:'prio * ('a, 'err, 'prio, 'state) t
   -> ('a, 'err, 'prio, 'state) t
-
-val prune : unit -> ('a, 'err, 'prio, 'state) t
 
 val yield : 'prio -> (unit, 'err, 'prio, 'state) t
 

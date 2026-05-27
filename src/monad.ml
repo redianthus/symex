@@ -1,10 +1,8 @@
-(** A monad representing computation that can be cooperatively scheduled. A
-    computation can stop ([Prune]). Computations can yield ([Yield]), and split
-    into two non deterministic choices ([Choice]). They can also fail ([Ok]
-    versus [Error]). *)
+(** A monad representing computation that can be cooperatively scheduled.
+    Computations can yield ([Yield]), and split into two non deterministic choices ([Choice]).
+    They can also fail/stop ([Ok] versus [Error]). *)
 
 type ('a, 'err, 'prio, 'state) schedulable =
-  | Prune
   | Ok of 'a * 'state
   | Error of 'err
   | Yield of 'prio * (unit -> ('a, 'err, 'prio, 'state) schedulable)
@@ -22,7 +20,6 @@ let[@inline] rec bind_schedulable (x : ('a, 'err, 'prio, 'state) schedulable)
   (f : 'a -> 'state -> ('b, 'err, 'prio, 'state) schedulable) :
   ('b, 'err, 'prio, 'state) schedulable =
   match x with
-  | Prune -> Prune
   | Ok (v, state) -> f v state
   | Error e -> Error e
   | Yield (prio, step) -> Yield (prio, fun () -> bind_schedulable (step ()) f)
@@ -36,7 +33,6 @@ let[@inline] rec map_schedulable (f : 'a -> 'b)
   (x : ('a, 'err, 'prio, 'state) schedulable) :
   ('b, 'err, 'prio, 'state) schedulable =
   match x with
-  | Prune -> Prune
   | Ok (v, state) -> Ok (f v, state)
   | Error e -> Error e
   | Yield (prio, step) -> Yield (prio, fun () -> map_schedulable f (step ()))
@@ -45,8 +41,6 @@ let[@inline] rec map_schedulable (f : 'a -> 'b)
 let[@inline] map (f : 'a -> 'b) (x : ('a, 'err, 'prio, 'state) t) :
   ('b, 'err, 'prio, 'state) t =
  fun (state : 'state) -> map_schedulable f (x state)
-
-(* State monadic boilerplate *)
 
 let[@inline] return (x : 'a) : ('a, _, _, 'state) t =
  fun (state : 'state) -> Ok (x, state)
@@ -82,9 +76,6 @@ let[@inline] fork ~(parent : ('a, 'err, 'prio, 'state) t)
   let prio, child = child in
   let child = bind (yield prio) (fun () -> child) in
   choose parent child
-
-let[@inline] prune () : ('a, 'err, 'prio, 'state) t =
- fun (_state : 'state) -> Prune
 
 let[@inline] fail (err : 'err) : ('a, 'err, 'prio, 'state) t =
  fun (_state : 'state) -> Error err
