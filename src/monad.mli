@@ -11,15 +11,15 @@ type ('a, 'err, 'prio, 'state) schedulable =
       * ('a, 'err, 'prio, 'state) schedulable
 
 (* Add a notion of State to the Schedulable monad. "Transformer without module functor" style. *)
-and ('a, 'err, 'prio, 'state) t
+type ('a, 'err, 'prio, 'state) t
 
 (* Monadic boilerplate *)
 
 val return : 'a -> ('a, 'err, 'prio, 'state) t
 
 val bind :
-     ('a, 'err, 'prio, 'state) t
-  -> ('a -> ('b, 'err, 'prio, 'state) t)
+     ('a -> ('b, 'err, 'prio, 'state) t)
+  -> ('a, 'err, 'prio, 'state) t
   -> ('b, 'err, 'prio, 'state) t
 
 val ( let* ) :
