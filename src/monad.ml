@@ -16,9 +16,9 @@ type ('a, 'err, 'prio, 'state) schedulable =
 type ('a, 'err, 'prio, 'state) t =
   'state -> ('a, 'err, 'prio, 'state) schedulable
 
-(* Schedulable monadic boilerplate *)
+(* Schedulable+State monadic boilerplate *)
 
-let rec bind_schedulable (x : ('a, 'err, 'prio, 'state) schedulable)
+let[@inline] rec bind_schedulable (x : ('a, 'err, 'prio, 'state) schedulable)
   (f : 'a -> 'state -> ('b, 'err, 'prio, 'state) schedulable) :
   ('b, 'err, 'prio, 'state) schedulable =
   match x with
@@ -27,6 +27,10 @@ let rec bind_schedulable (x : ('a, 'err, 'prio, 'state) schedulable)
   | Error e -> Error e
   | Yield (prio, step) -> Yield (prio, fun () -> bind_schedulable (step ()) f)
   | Choice (a, b) -> Choice (bind_schedulable a f, bind_schedulable b f)
+
+let[@inline] bind (x : ('a, 'err, 'prio, 'state) t)
+  (f : 'a -> ('b, 'err, 'prio, 'state) t) : ('b, 'err, 'prio, 'state) t =
+ fun (state : 'state) -> bind_schedulable (x state) f
 
 let[@inline] rec map_schedulable (f : 'a -> 'b)
   (x : ('a, 'err, 'prio, 'state) schedulable) :
@@ -38,20 +42,16 @@ let[@inline] rec map_schedulable (f : 'a -> 'b)
   | Yield (prio, step) -> Yield (prio, fun () -> map_schedulable f (step ()))
   | Choice (a, b) -> Choice (map_schedulable f a, map_schedulable f b)
 
-(* Schedulable + State monadic boilerplate *)
+let[@inline] map (f : 'a -> 'b) (x : ('a, 'err, 'prio, 'state) t) :
+  ('b, 'err, 'prio, 'state) t =
+ fun (state : 'state) -> map_schedulable f (x state)
+
+(* State monadic boilerplate *)
 
 let[@inline] return (x : 'a) : ('a, _, _, 'state) t =
  fun (state : 'state) -> Ok (x, state)
 
-let[@inline] bind (x : ('a, 'err, 'prio, 'state) t)
-  (f : 'a -> ('b, 'err, 'prio, 'state) t) : ('b, 'err, 'prio, 'state) t =
- fun (state : 'state) -> bind_schedulable (x state) f
-
 let[@inline] ( let* ) (x : ('a, 'err, 'prio, 'state) t) f : _ t = bind x f
-
-let[@inline] map (f : 'a -> 'b) (x : ('a, 'err, 'prio, 'state) t) :
-  ('b, 'err, 'prio, 'state) t =
- fun (state : 'state) -> map_schedulable f (x state)
 
 let[@inline] ( let+ ) (x : ('a, 'err, 'prio, 'state) t) (f : 'a -> 'b) :
   ('b, 'err, 'prio, 'state) t =
