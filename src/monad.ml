@@ -23,9 +23,14 @@ module Schedulable = struct
     | Yield (prio, step) -> Yield (prio, fun () -> bind (step ()) f)
     | Choice (a, b) -> Choice (bind a f, bind b f)
 
-  let[@inline] map (f : 'a -> 'b) (x : ('a, 'err, 'prio) t) :
+  let[@inline] rec map (f : 'a -> 'b) (x : ('a, 'err, 'prio) t) :
     ('b, 'err, 'prio) t =
-    bind x (fun x -> return (f x))
+    match x with
+    | Prune -> Prune
+    | Ok v -> Ok (f v)
+    | Error e -> Error e
+    | Yield (prio, step) -> Yield (prio, fun () -> map f (step ()))
+    | Choice (a, b) -> Choice (map f a, map f b)
 
   let[@inline] yield (prio : 'prio) : (unit, 'err, 'prio) t =
     Yield (prio, Fun.const (Ok ()))
