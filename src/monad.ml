@@ -10,11 +10,7 @@ type ('a, 'err, 'prio, 'state) schedulable =
       ('a, 'err, 'prio, 'state) schedulable
       * ('a, 'err, 'prio, 'state) schedulable
 
-(* Add a notion of State to the Schedulable monad. "Transformer without module functor" style. *)
-type ('a, 'err, 'prio, 'state) t =
-  'state -> ('a, 'err, 'prio, 'state) schedulable
-
-(* Schedulable+State monadic boilerplate *)
+(* Schedulable monadic boilerplate *)
 
 let[@inline] rec bind_schedulable f = function
   | Ok (v, state) -> f v state
@@ -22,13 +18,19 @@ let[@inline] rec bind_schedulable f = function
   | Yield (prio, step) -> Yield (prio, fun () -> bind_schedulable f (step ()))
   | Choice (a, b) -> Choice (bind_schedulable f a, bind_schedulable f b)
 
-let[@inline] bind f x = fun state -> bind_schedulable f (x state)
-
 let[@inline] rec map_schedulable f = function
   | Ok (v, state) -> Ok (f v, state)
   | Error e -> Error e
   | Yield (prio, step) -> Yield (prio, fun () -> map_schedulable f (step ()))
   | Choice (a, b) -> Choice (map_schedulable f a, map_schedulable f b)
+
+(* Add a notion of State to the Schedulable monad. "Transformer without module functor" style. *)
+type ('a, 'err, 'prio, 'state) t =
+  'state -> ('a, 'err, 'prio, 'state) schedulable
+
+(* State monadic boilerplate *)
+
+let[@inline] bind f x = fun state -> bind_schedulable f (x state)
 
 let[@inline] map f x = fun state -> map_schedulable f (x state)
 
