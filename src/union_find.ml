@@ -93,6 +93,8 @@ module Make (X : VariableType) : S with type key = X.t = struct
 
   let empty = { canonical_elements = MX.empty; node_of_canonicals = MX.empty }
 
+  let empty_node = { aliases = SX.empty; cardinal = 0; datum = None }
+
   let find_canonical variable t =
     match MX.find_opt variable t.canonical_elements with
     | None -> variable
@@ -101,18 +103,18 @@ module Make (X : VariableType) : S with type key = X.t = struct
   let add ~merge variable datum t =
     let variable = find_canonical variable t in
     let node_of_canonicals =
-      MX.update variable
-        (function
-          | None ->
-            Some { aliases = SX.empty; cardinal = 0; datum = Some datum }
-          | Some node ->
-            let datum =
-              match node.datum with
-              | None -> Some datum
-              | Some existing_datum -> Some (merge datum existing_datum)
-            in
-            Some { node with datum } )
-        t.node_of_canonicals
+      match MX.find_opt variable t.node_of_canonicals with
+      | None ->
+        MX.add variable
+          { aliases = SX.empty; cardinal = 0; datum = Some datum }
+          t.node_of_canonicals
+      | Some node ->
+        let datum =
+          match node.datum with
+          | None -> datum
+          | Some existing_datum -> merge datum existing_datum
+        in
+        MX.add variable { node with datum = Some datum } t.node_of_canonicals
     in
     { t with node_of_canonicals }
 
@@ -120,13 +122,13 @@ module Make (X : VariableType) : S with type key = X.t = struct
 
   let find_node canonical t =
     match find_node_opt canonical t with
-    | None -> { aliases = SX.empty; cardinal = 0; datum = None }
+    | None -> empty_node
     | Some node -> node
 
   let find_opt variable t =
-    Option.bind
-      (find_node_opt (find_canonical variable t) t)
-      (fun node -> node.datum)
+    match find_node_opt (find_canonical variable t) t with
+    | None -> None
+    | Some node -> node.datum
 
   let find_and_remove_opt variable t =
     let canonical = find_canonical variable t in
@@ -136,12 +138,11 @@ module Make (X : VariableType) : S with type key = X.t = struct
       match node.datum with
       | None -> None
       | Some datum ->
-        let node_of_canonicals = MX.remove canonical t.node_of_canonicals in
         let canonical_elements =
-          MX.filter (fun _k v -> v <> canonical) t.canonical_elements
+          SX.fold MX.remove node.aliases t.canonical_elements
         in
-        let t = { canonical_elements; node_of_canonicals } in
-        Some (datum, t) )
+        let node_of_canonicals = MX.remove canonical t.node_of_canonicals in
+        Some (datum, { canonical_elements; node_of_canonicals }) )
 
   let set_canonical_element aliases canonical canonical_elements =
     SX.fold
@@ -182,8 +183,9 @@ module Make (X : VariableType) : S with type key = X.t = struct
       let node_of_canonicals = MX.remove demoted node_of_canonicals in
       { canonical_elements; node_of_canonicals }
 
-  let explode { canonical_elements = _; node_of_canonicals } =
-    MX.to_list node_of_canonicals
-    |> List.map (fun (_k, v) ->
-      match v.datum with None -> assert false | Some v -> v )
+  let explode { node_of_canonicals; _ } =
+    MX.fold
+      (fun _k node acc ->
+        match node.datum with Some v -> v :: acc | None -> assert false )
+      node_of_canonicals []
 end
